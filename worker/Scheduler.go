@@ -22,6 +22,8 @@ var (
 func (scheduler *Scheduler) handleJobEvent(jobEvent *common.JobEvent) {
 	var (
 		jobSchedulePlan *common.JobSchedulePlan
+		jobExecuteInfo *common.JobExecuteInfo
+		jobExecuting bool
 		jobExisted bool
 		err error
 	)
@@ -34,6 +36,12 @@ func (scheduler *Scheduler) handleJobEvent(jobEvent *common.JobEvent) {
 	case common.JobEventDelete: // 删除任务事件
 		if jobSchedulePlan, jobExisted = scheduler.jobPlanTable[jobEvent.Job.Name]; jobExisted {
 			delete(scheduler.jobPlanTable, jobEvent.Job.Name)
+		}
+	case common.JobEventKill: // 强杀任务事件
+		// 取消Command执行, 判断任务是否在执行中
+		jobExecuteInfo, jobExecuting = scheduler.jobExecutingTable[jobEvent.Job.Name]
+		if jobExecuteInfo, jobExecuting = scheduler.jobExecutingTable[jobEvent.Job.Name]; jobExecuting {
+			jobExecuteInfo.CancelFunc() // 触发command杀死shell子进程，任务得到退出
 		}
 	}
 }
@@ -100,10 +108,30 @@ func (scheduler *Scheduler) TrySchedule() (scheduleAfter time.Duration){
 
 // 处理任务结果
 func (scheduler *Scheduler) handleJobResult(result *common.JobExecuteResult) {
+	var (
+		jobLog *common.JobLog
+	)
 	// 删除执行状态
 	delete(scheduler.jobExecutingTable, result.ExecuteInfo.Job.Name)
 
-	fmt.Println("任务执行完成:", result.ExecuteInfo.Job.Name, string(result.Output), result.Err)
+	// 生成执行日志
+	if result.Err != common.ErrLockAlreadyRequired {
+		jobLog = &common.JobLog{
+			JobName:      result.ExecuteInfo.Job.Name,
+			Command:      result.ExecuteInfo.Job.Command,
+			Output:       string(result.Output),
+			PlanTime:     result.ExecuteInfo.PlanTime.UnixNano() / 1000 / 1000,
+			ScheduleTime: result.ExecuteInfo.RealTime.UnixNano() / 1000 / 1000,
+			StartTime:    result.StartTime.UnixNano() / 1000 / 1000,
+			EndTime:      result.EndTime.UnixNano() / 1000 / 1000,
+		}
+		if result.Err != nil {
+			jobLog.Err = result.Err.Error()
+		} else {
+			jobLog.Err = ""
+		}
+		G_logSink.Append(jobLog)
+	}
 }
 
 // 调度协程

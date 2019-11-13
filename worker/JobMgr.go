@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"fmt"
 	"github.com/PeterWangYong/crontab/common"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/mvcc/mvccpb"
@@ -57,6 +56,10 @@ func InitJobMgr() (err error) {
 
 	// 启动任务监听
 	G_jobMgr.watchJobs()
+
+	// 启动监听killer
+	G_jobMgr.watchKiller()
+
 
 	return
 }
@@ -116,7 +119,6 @@ func (jobMgr *JobMgr) watchJobs() (err error) {
 				}
 				// TODO: 推送事件给scheduler
 				G_scheduler.PushJobEvent(jobEvent)
-				fmt.Println(*jobEvent)
 			}
 		}
 	}()
@@ -129,4 +131,37 @@ func (jobMgr *JobMgr) watchJobs() (err error) {
 func (jobMgr *JobMgr) CreateJobLock(jobName string) (jobLock *JobLock) {
 	jobLock = InitJobLock(jobName, jobMgr.kv, jobMgr.lease)
 	return
+}
+
+// 监听强杀任务通知
+func(jobMgr *JobMgr) watchKiller() {
+
+	var (
+		watchChan clientv3.WatchChan
+		watchResp clientv3.WatchResponse
+		watchEvent *clientv3.Event
+		jobEvent *common.JobEvent
+		jobName string
+		job *common.Job
+	)
+	go func() {
+		// 监听/cron/killer目录的变化
+		watchChan = jobMgr.watcher.Watch(context.TODO(), common.JobKillerDir, clientv3.WithPrefix())
+		// 处理监听事件
+		for watchResp = range watchChan {
+			for _, watchEvent = range watchResp.Events {
+				switch watchEvent.Type {
+				case mvccpb.PUT: //杀死任务事件
+					jobName = common.ExtractKillerName(string(watchEvent.Kv.Key)) // /cron/killer/job10
+					job = &common.Job{
+						Name:     jobName,
+					}
+					jobEvent = common.BuildJobEvent(common.JobEventKill, job)
+					// 事件推给scheduler
+					G_scheduler.PushJobEvent(jobEvent)
+				case mvccpb.DELETE: //killer标记过期被自动删除
+				}
+			}
+		}
+	}()
 }
