@@ -1,6 +1,7 @@
 package common
 
 import (
+	"context"
 	"encoding/json"
 	"github.com/gorhill/cronexpr"
 	"strings"
@@ -26,6 +27,8 @@ type JobExecuteInfo struct {
 	Job *Job // 任务信息
 	PlanTime time.Time // 理论上的调度时间
 	RealTime time.Time // 实际的调度时间
+	CancelCtx context.Context // 任务command的context
+	CancelFunc context.CancelFunc // 用于取消command执行的cancel函数
 }
 
 // HTTP接口应答
@@ -48,6 +51,34 @@ type JobExecuteResult struct {
 	Err error // 脚本错误原因
 	StartTime time.Time // 启动时间
 	EndTime time.Time // 结束时间
+}
+
+// 任务执行日志
+type JobLog struct {
+	JobName string `json:"jobName" bson:"jobName"` // 任务名字
+	Command string `json:"command" bson:"command"` //脚本命令
+	Err string `json:"err" bson:"err"` // 错误原因
+	Output string `json:"output" bson:"output"` // 脚本输出
+	PlanTime int64 ` json:"planTime" bson:"planTime"` // 计划开始时间
+	ScheduleTime int64 `json:"scheduleTime" bson:"scheduleTime"` // 实际调度时间
+	StartTime int64 `json:"startTime" bson:"startTime"` // 任务执行开始时间
+	EndTime int64 `json:"endTime" bson:"endTime"` // 任务执行结束时间
+}
+
+// 日志批次
+type LogBatch struct {
+	Logs []interface{} // 多条日志
+
+}
+
+// 任务日志过滤条件
+type JobLogFilter struct {
+	JobName string `bson:"jobName"`
+}
+
+// 任务日志排序规则
+type SortLogByStartTime struct {
+	SortOrder int `bson:"startTime"` // {startTime: -1}
 }
 
 // 应答方法
@@ -87,6 +118,11 @@ func ExtractJobName(jobKey string) string {
 	return strings.TrimPrefix(jobKey, JobSaveDir)
 }
 
+// 从 /cron/killer/job10 中提取job10
+func ExtractKillerName(killerKey string) string {
+	return strings.TrimPrefix(killerKey, JobKillerDir)
+}
+
 // 任务变化事件有2种：更新任务和删除任务
 func BuildJobEvent(eventType int, job *Job) (jobEvent *JobEvent) {
 	return &JobEvent{
@@ -121,5 +157,6 @@ func BuildJobExecuteInfo(jobSchedulePlan *JobSchedulePlan) (jobExecuteInfo *JobE
 		PlanTime: jobSchedulePlan.NextTime,
 		RealTime: time.Now(),
 	}
+	jobExecuteInfo.CancelCtx, jobExecuteInfo.CancelFunc = context.WithCancel(context.TODO())
 	return
 }

@@ -13,4 +13,7 @@ const (
 
 	// 删除任务事件
 	JobEventDelete = 2
+
+	// 强杀任务事件
+	JobEventKill = 3
 )
