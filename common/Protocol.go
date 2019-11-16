@@ -123,6 +123,11 @@ func ExtractKillerName(killerKey string) string {
 	return strings.TrimPrefix(killerKey, JobKillerDir)
 }
 
+// 从 /cron/workers/IP 中提取IP
+func ExtractWorkerIp(workerKey string) string {
+	return strings.TrimPrefix(workerKey, JobWorkerDir)
+}
+
 // 任务变化事件有2种：更新任务和删除任务
 func BuildJobEvent(eventType int, job *Job) (jobEvent *JobEvent) {
 	return &JobEvent{
